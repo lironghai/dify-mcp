@@ -101,6 +101,67 @@ test("workflow.sync_draft preserves env vars when omitted", async () => {
   assert.equal(captured.hash, "h1");
 });
 
+test("workflow.sync_draft retries without env vars only after Dify 1.17+ rejects them", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const fake = {
+    getDraft: async (): Promise<Result<unknown>> => ({
+      ok: true,
+      data: {
+        graph: startGraph,
+        features: {},
+        environment_variables: [{ name: "SECRET", value: "x" }],
+        conversation_variables: [{ name: "c", value: "y" }],
+        hash: "h1",
+      },
+    }),
+    syncDraft: async (_id: string, body: Record<string, unknown>): Promise<Result<unknown>> => {
+      bodies.push(body);
+      if (bodies.length === 1) {
+        return {
+          ok: false,
+          error: {
+            code: "USAGE_ERROR",
+            message: "validation failed",
+            retryable: false,
+            details: [{ type: "extra_forbidden", loc: ["body", "environment_variables"] }],
+          },
+        };
+      }
+      return { ok: true, data: { hash: "h2" } };
+    },
+  };
+  const r = await find("workflow.sync_draft").run(
+    { app_id: "a1", graph: startGraph },
+    fakeCtx({ console: fake as never }),
+  );
+  assert.ok(r.ok);
+  assert.equal(bodies.length, 2);
+  assert.equal("environment_variables" in bodies[0], true);
+  assert.equal("environment_variables" in bodies[1], false);
+  assert.deepEqual(bodies[1].conversation_variables, [{ name: "c", value: "y" }]);
+  assert.equal(bodies[1].hash, "h1");
+});
+
+test("workflow.sync_draft does not retry unrelated failures", async () => {
+  let calls = 0;
+  const fake = {
+    getDraft: async (): Promise<Result<unknown>> => ({
+      ok: true,
+      data: { graph: startGraph, environment_variables: [{ name: "SECRET", value: "x" }] },
+    }),
+    syncDraft: async (): Promise<Result<unknown>> => {
+      calls += 1;
+      return { ok: false, error: { code: "SERVER_ERROR", message: "failed after saving", retryable: true } };
+    },
+  };
+  const r = await find("workflow.sync_draft").run(
+    { app_id: "a1", graph: startGraph },
+    fakeCtx({ console: fake as never }),
+  );
+  assert.equal(r.ok, false);
+  assert.equal(calls, 1);
+});
+
 test("workflow.sync_draft omits env/conversation vars when draft is uninitialized", async () => {
   let captured: Record<string, unknown> = {};
   const fake = {

@@ -150,6 +150,12 @@ function draftFields(data: unknown): {
   };
 }
 
+function envVarsForbidden(result: Result<unknown>): boolean {
+  if (result.ok || result.error.code !== "USAGE_ERROR") return false;
+  const details = JSON.stringify(result.error);
+  return details.includes("extra_forbidden") && details.includes("environment_variables");
+}
+
 function assertPublicYamlUrl(url: string | undefined): void {
   if (!url || !isPrivateUrl(url)) return;
   if (process.env.DIFYWF_ALLOW_PRIVATE_URL === "1") return;
@@ -401,7 +407,7 @@ export const tools: Tool[] = [
   },
   {
     name: "app.export",
-    summary: "Export an app as YAML DSL or a Dify 1.18 .ifpkg package. include_secret requires confirm=true.",
+    summary: "Export an app as YAML DSL or a Dify 1.18+ .ifpkg package (format v2 on 1.19+). include_secret requires confirm=true.",
     schema: {
       type: "object",
       properties: {
@@ -571,14 +577,14 @@ export const tools: Tool[] = [
   },
   {
     name: "workflow.sync_draft",
-    summary: "Validate and save the draft graph. Supports dry_run diff. Optimistic-concurrency via hash. Omitting env/conversation variables keeps the current draft values (does not wipe them).",
+    summary: "Validate and save the draft graph. Supports dry_run diff. Optimistic-concurrency via hash. Existing env/conversation variables are preserved across Dify 1.16-1.19; manage env vars with the dedicated workflow variable tools.",
     needs: "console",
     schema: {
       type: "object",
       properties: {
         app_id: S("app uuid"), graph: O("{nodes, edges}"), graph_json: S("graph as a JSON string"),
         features: O("app features"),
-        environment_variables: { type: "array" }, conversation_variables: { type: "array" },
+        conversation_variables: { type: "array" },
         hash: S("current draft hash; fetched automatically when omitted"),
         dry_run: B("validate + return diff without saving"),
         confirm: CONFIRM,
@@ -597,7 +603,7 @@ export const tools: Tool[] = [
       const current = await client.getDraft(req(args, "app_id"));
       if (dryRun) return dryRunBaseline(current, graph, issues);
       const fields = current.ok ? draftFields(current.data) : {};
-      // Cloud SyncDraftWorkflowPayload requires graph+features. Env/conversation
+      // Cloud SyncDraftWorkflowPayload requires graph+features. Conversation
       // variables are optional there and rejected as extra_forbidden when sent as
       // [] on an uninitialized draft — only include them when the caller or the
       // current draft actually has them.
@@ -605,13 +611,20 @@ export const tools: Tool[] = [
         graph,
         features: args.features ?? fields.features ?? {},
       };
-      const envVars = args.environment_variables ?? fields.environment_variables;
+      const envVars = fields.environment_variables;
       const convVars = args.conversation_variables ?? fields.conversation_variables;
       const hash = str(args.hash) ?? fields.hash;
       if (envVars !== undefined) body.environment_variables = envVars;
       if (convVars !== undefined) body.conversation_variables = convVars;
       if (hash !== undefined) body.hash = hash;
-      return client.syncDraft(req(args, "app_id"), body);
+      const appId = req(args, "app_id");
+      const result = await client.syncDraft(appId, body);
+      if (result.ok || envVars === undefined || !envVarsForbidden(result)) return result;
+      // Dify 1.16 needs the current list to avoid clearing it. Dify 1.17+
+      // rejects the field before saving and preserves variables when omitted.
+      const modernBody = { ...body };
+      delete modernBody.environment_variables;
+      return client.syncDraft(appId, modernBody);
     },
   },
   {
@@ -634,9 +647,16 @@ export const tools: Tool[] = [
   },
   {
     name: "workflow.events",
-    summary: "Fetch the task event stream for a run. OpenAPI SSE when a token is present; cookie-only sessions fall back to the console run record.",
-    schema: { type: "object", properties: { app_id: S("app uuid"), task_id: S("task or run id") }, required: ["app_id", "task_id"] },
+    summary: "Fetch events for a run. Use run_id for the Dify 1.19+ OpenAPI route or task_id for older versions; cookie-only sessions fall back to the console run record.",
+    schema: { type: "object", properties: { app_id: S("app uuid"), run_id: S("workflow run id (Dify 1.19+)"), task_id: S("legacy task id") }, required: ["app_id"] },
     run: async (args, ctx) => {
+      const appId = req(args, "app_id");
+      const runId = str(args.run_id);
+      if (runId) {
+        if (ctx.openapi) return ctx.openapi.runEvents(appId, runId);
+        if (ctx.console) return ctx.console.getRun(appId, runId);
+        throw new ToolError("AUTH_REQUIRED", "workflow.events needs an OpenAPI token or console cookies");
+      }
       if (ctx.openapi) return ctx.openapi.taskEvents(req(args, "app_id"), req(args, "task_id"));
       if (ctx.console) return ctx.console.getRun(req(args, "app_id"), req(args, "task_id"));
       throw new ToolError("AUTH_REQUIRED", "workflow.events needs an OpenAPI token or console cookies");
@@ -652,14 +672,20 @@ export const tools: Tool[] = [
   },
   {
     name: "workflow.stop",
-    summary: "Stop a running task. Console cookies first; OpenAPI token fallback.",
-    schema: { type: "object", properties: { app_id: S("app uuid"), task_id: S("task id") }, required: ["app_id", "task_id"] },
-    run: async (args, ctx) =>
-      consoleFirst(
+    summary: "Stop a run. Use run_id for the Dify 1.19+ OpenAPI route or task_id for the legacy console/OpenAPI route.",
+    schema: { type: "object", properties: { app_id: S("app uuid"), run_id: S("workflow run id (Dify 1.19+; OpenAPI token required)"), task_id: S("legacy task id") }, required: ["app_id"] },
+    run: async (args, ctx) => {
+      const runId = str(args.run_id);
+      if (runId) {
+        const client = needClient(ctx, "openapi") as OpenapiClient;
+        return client.stopRun(req(args, "app_id"), runId);
+      }
+      return consoleFirst(
         ctx,
         (c) => c.stopTask(req(args, "app_id"), req(args, "task_id")),
         (o) => o.stopTask(req(args, "app_id"), req(args, "task_id")),
-      ),
+      );
+    },
   },
   {
     name: "workflow.node_last_run",
@@ -911,7 +937,7 @@ export const tools: Tool[] = [
   },
   {
     name: "app.import",
-    summary: "Import YAML DSL or a Dify 1.18 .ifpkg package. Handles pending confirmation; requires confirm=true.",
+    summary: "Import YAML DSL or a Dify 1.18+ .ifpkg package (format v2 on 1.19+). Handles pending confirmation; requires confirm=true.",
     confirm: true,
     schema: {
       type: "object",

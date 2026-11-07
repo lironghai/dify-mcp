@@ -8,7 +8,7 @@ import { resolveConfig, maskToken } from "./core/config.ts";
 import { consoleLogin, deviceLoginFlow, parseAuthCookiesFromInput, storeCookies, storeToken } from "./core/auth.ts";
 import { runTool, tools } from "./tools/registry.ts";
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 
 const NS_ALIASES: Record<string, string> = {
   wf: "workflow",

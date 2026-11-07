@@ -34,8 +34,16 @@ export class OpenapiClient {
     return this.call(`apps/${appId}/tasks/${taskId}:stop`, { method: "POST" });
   }
 
+  stopRun(appId: string, runId: string): Promise<Result<unknown>> {
+    return this.call(`apps/${appId}/runs/${runId}:stop`, { method: "POST" });
+  }
+
   taskEvents(appId: string, taskId: string): Promise<Result<unknown[]>> {
     return readSse(`${this.base}/openapi/v1`, `apps/${appId}/tasks/${taskId}/events`, { token: this.token });
+  }
+
+  runEvents(appId: string, runId: string): Promise<Result<unknown[]>> {
+    return readSse(`${this.base}/openapi/v1`, `apps/${appId}/runs/${runId}/events`, { token: this.token });
   }
 
   exportDsl(appId: string, includeSecret = false, _workflowId?: string): Promise<Result<string>> {

@@ -113,6 +113,20 @@ Don't see your agent? If it supports MCP or can run shell commands, it works. Th
 - **Zero build step.** Runs directly on Node 23.6+ native TypeScript. No compiler,
   no bundler, no transpiler. Clone, install, go.
 
+## What's new in [v0.6.0](https://github.com/alexjiaguo/dify-mcp/releases/tag/v0.6.0)
+
+- **Dify 1.19.0 compatibility.** DSL remains 0.7.0 and Graphon remains 0.8.0;
+  changed Console/OpenAPI contracts were checked against the upstream release.
+- **Run-based OpenAPI stop/events.** `workflow.stop` and `workflow.events` accept
+  `run_id` for the Dify 1.19 routes. `task_id` retains the legacy behavior.
+- **Cross-version draft sync.** Existing environment variables survive sync on
+  Dify 1.16 and 1.17+ through a narrowly guarded compatibility retry.
+- **Portable package v2.** Dify 1.19 `.ifpkg` exports remain byte-transparent,
+  including server-managed nested Workflow Tools. No local package parser is used.
+
+Dify 1.19 support is upstream contract-verified and unit-tested; a live 1.19
+instance has not been exercised in this update.
+
 ## What's new in [v0.5.0](https://github.com/alexjiaguo/dify-mcp/releases/tag/v0.5.0)
 
 - **Dify 1.18.0 compatibility.** YAML remains DSL 0.7.0; Graphon 0.8.0 is supported (upstream contract-verified).
@@ -180,6 +194,10 @@ Authoring loop verified against **cloud.dify.ai 1.17.0** with console cookie aut
 
 | dify-mcp | Dify | DSL | Graphon | Support |
 |---|---|---|---|---|
+| 0.6.x | 1.19.x | 0.7.0 | 0.8.0 | Supported; 1.19.0 upstream contract-verified |
+| 0.6.x | 1.18.x | 0.7.0 | 0.8.0 | Supported; carried forward from 0.5.x |
+| 0.6.x | 1.17.x | 0.7.0 | 0.7.0 | Supported; legacy OpenAPI task routes remain available |
+| 0.6.x | 1.16.x | 0.7.0 | 0.6.0 | Best-effort; draft-sync preservation covered by contract tests |
 | 0.5.x | 1.18.x | 0.7.0 | 0.8.0 | Supported; 1.18.0 upstream contract-verified |
 | 0.5.x | 1.17.x | 0.7.0 | 0.7.0 | Supported; YAML remains the default export format |
 | 0.5.x | 1.16.x | 0.7.0 | 0.6.0 | Best-effort; not live-verified |
@@ -273,7 +291,7 @@ retrieval). All three pass `difywf wf validate` with no error-level issues.
 ```bash
 # Source instance: writes one DSL per app plus manifest.json (secrets excluded)
 difywf app backup ./dify-backup
-# Or preserve supported app resources in Dify 1.18 portable packages
+# Or preserve supported app resources in Dify 1.18+ portable packages
 difywf app backup ./dify-package-backup --format ifpkg
 
 # Target instance: authenticate or set DIFY_API_BASE first, then preview

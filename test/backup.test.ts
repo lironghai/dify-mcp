@@ -18,7 +18,8 @@ const fakeCtx = (overrides: Partial<ToolCtx> = {}): ToolCtx => ({
 
 test("agent guide exposes the Dify compatibility contract", () => {
   const text = guideText("compatibility");
-  assert.match(text, /dify-mcp 0\.[345]\.x/);
+  assert.match(text, /dify-mcp 0\.[3456]\.x/);
+  assert.match(text, /1\.19\.x/);
   assert.match(text, /1\.18\.x/);
   assert.match(text, /1\.17\.x/);
   assert.match(text, /1\.16\.x/);

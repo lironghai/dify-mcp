@@ -11,9 +11,9 @@ become underscores: \`workflow.sync_draft\` -> \`workflow_sync_draft\`). Both
 return the same contract: { "ok": bool, "data": ..., "error": { "code",
 "message", "retryable" } }. Parse this JSON; never scrape human text.
 
-Targets: dify-mcp 0.5.x supports Dify 1.18.x (1.18.0 contract-verified) and
+Targets: dify-mcp 0.6.x supports Dify 1.19.x and 1.18.x (contract-verified) and
 1.17.x (cloud 1.17.0 live-verified; 1.17.1 offline-verified), plus best-effort
-1.16.x. DSL version 0.7.0. Graphon is server-side: 0.8.0 on 1.18.x,
+1.16.x. DSL version 0.7.0. Graphon is server-side: 0.8.0 on 1.18+,
 0.7.0 on 1.17.x, 0.6.0 on 1.16.x. Dify <=1.15.x and 0.x are unsupported.
 App modes: workflow | chatflow (advanced-chat) | chat | agent (agent-chat) | completion.
 
@@ -45,15 +45,18 @@ x-difywf-token). /health stays unauthenticated for probes.`,
 7. workflow.publish with confirm=true — requires a model provider to be
    configured first (provider.list / provider.set_credentials).
 If sync_draft fails with a stale-hash error: refetch workflow.get_draft and
-retry with the fresh hash (VALIDATION_FAILED, retryable=true). Omitting
-environment_variables / conversation_variables keeps the current draft
-values — it does not wipe secrets.`,
+retry with the fresh hash (VALIDATION_FAILED, retryable=true). Existing
+environment/conversation variables are preserved on 1.16-1.19. On 1.17+ the
+client retries without the legacy environment_variables field only after the
+server rejects it as extra_forbidden. Manage env vars with the dedicated
+workflow variable tools.`,
 
   compatibility: `# Compatibility contract
-dify-mcp 0.5.x:
+dify-mcp 0.6.x:
 
 | Dify | DSL | Graphon | Support |
 |---|---|---|---|
+| 1.19.x | 0.7.0 | 0.8.0 | Supported; 1.19.0 contract-verified |
 | 1.18.x | 0.7.0 | 0.8.0 | Supported; 1.18.0 contract-verified |
 | 1.17.x | 0.7.0 | 0.7.0 | Supported; cloud 1.17.0 live-verified; 1.17.1 offline-verified |
 | 1.16.x | 0.7.0 | 0.6.0 | Best-effort; not live-verified |
@@ -65,10 +68,16 @@ than 0.7.0, stop and report \`DSL_VERSION_MISMATCH\` instead of editing the DSL.
 
 App export/import: app.export defaults to format=yaml (keeps 1.17 compatibility).
 Use format=ifpkg on 1.18+ for portable packages; optional workflow_id selects a
-published version. Packages use the console API only and return {name, content_b64,
-mime}. app.import accepts yaml, yaml_url, or file (exactly one), with optional
+published version. Dify 1.19 emits package format v2, which remains byte-transparent
+here; nested Workflow Tools are handled by the server. Packages use the console API
+only and return {name, content_b64, mime}. app.import accepts yaml, yaml_url, or file (exactly one), with optional
 app_id/draft_hash for console overwrites. app.backup defaults to YAML; format=ifpkg
 creates portable backups that app.restore can import without parsing as YAML.
+
+OpenAPI workflow stop/events: pass run_id on Dify 1.19+ to use
+/runs/{run_id}:stop and /runs/{run_id}/events. task_id retains the legacy routes.
+workflow.stop with run_id requires an OpenAPI token; console-only sessions can
+continue using task_id on 1.19.
 
 Local migration path:
 1. On the source instance: \`app.backup\` (or CLI \`difywf app backup <dir>\`).
